@@ -47,6 +47,7 @@
 #include "semphr.h"
 #include "platform/iot_network.h"
 #include "platform/iot_clock.h"
+#include "esp_log.h"
 
 /* Greengrass includes. */
 #include "aws_ggd_config.h"
@@ -173,6 +174,9 @@ static MQTTFixedBuffer_t xBuffer =
     NETWORK_BUFFER_SIZE
 };
 
+MQTTContext_t xMQTTContext = { 0 };
+
+
 /**
  * @brief This function discovers the greengrass core device.
  * It fetches the ip address and certificate of greengrass core device.
@@ -186,7 +190,7 @@ static int discoverGreengrassCore();
  *
  * @param[in] pxMQTTContext MQTT context pointer.
  */
-static void sendMessageToGGC( MQTTContext_t * pxMQTTContext );
+void sendMessageToGGC( void );
 
 /**
  * @brief The application callback function for getting the incoming publishes,
@@ -478,7 +482,7 @@ static BaseType_t prvConnectToServerWithBackoffRetries( GGD_HostAddressData_t * 
     return xMqttStatus;
 }
 
-static void sendMessageToGGC( MQTTContext_t * pxMQTTContext )
+void sendMessageToGGC( void )
 {
     MQTTStatus_t xResult;
     MQTTPublishInfo_t xMQTTPublishInfo;
@@ -501,7 +505,7 @@ static void sendMessageToGGC( MQTTContext_t * pxMQTTContext )
         xMQTTPublishInfo.payloadLength = ( uint32_t ) sprintf( cBuffer, ggdDEMO_MQTT_MSG_DISCOVERY, ( long unsigned int ) ulMessageCounter ); /*lint !e586 sprintf can be used for specific demo. */
 
         /* Send PUBLISH packet. Packet ID is not used for a QoS0 publish. */
-        xResult = MQTT_Publish( pxMQTTContext, &xMQTTPublishInfo, 0 );
+        xResult = MQTT_Publish( &xMQTTContext, &xMQTTPublishInfo, 0 );
 
         if( xResult != MQTTSuccess )
         {
@@ -523,7 +527,7 @@ static int discoverGreengrassCore()
     SecureSocketsTransportParams_t secureSocketsTransportParams = { 0 };
     TransportSocketStatus_t xNetworkStatus;
     NetworkContext_t xNetworkContext = { 0 };
-    MQTTContext_t xMQTTContext = { 0 };
+    //MQTTContext_t xMQTTContext = { 0 };
     MQTTStatus_t xMQTTStatus;
 
 
@@ -557,40 +561,6 @@ static int discoverGreengrassCore()
          * The function returns a failure status if the TLS over TCP connection cannot be established
          * to the broker after the configured number of attempts. */
         xDemoStatus = prvConnectToServerWithBackoffRetries( &xHostAddressData, &xMQTTContext, &xNetworkContext );
-
-        if( xDemoStatus == pdPASS )
-        {
-            sendMessageToGGC( &xMQTTContext );
-
-            LogInfo( ( "Disconnecting from broker." ) );
-
-            /* Call MQTT DISCONNECT function. */
-            xMQTTStatus = MQTT_Disconnect( &xMQTTContext );
-
-            if( xMQTTStatus != MQTTSuccess )
-            {
-                LogError( ( "Failed to DISCONNECT MQTT connection: MQTTStatus=%s", MQTT_Status_strerror( xMQTTStatus ) ) );
-            }
-
-            /* We will always close the network connection, even if an error may have occurred during
-             * demo execution, to clean up the system resources that it may have consumed. */
-            /* Close the network connection.  */
-            xNetworkStatus = SecureSocketsTransport_Disconnect( &xNetworkContext );
-
-            if( xNetworkStatus != TRANSPORT_SOCKET_STATUS_SUCCESS )
-            {
-                status = EXIT_FAILURE;
-                LogError( ( "SecureSocketsTransport_Disconnect() failed to close the network connection. "
-                            "StatusCode=%d.", ( int ) xNetworkStatus ) );
-            }
-
-            LogInfo( ( "Disconnected from the broker." ) );
-        }
-        else
-        {
-            LogError( ( "Could not connect to the Broker." ) );
-            status = EXIT_FAILURE;
-        }
 
         /* Report on space efficiency of this demo task. */
         #if ( INCLUDE_uxTaskGetStackHighWaterMark == 1 )
@@ -628,6 +598,17 @@ int vStartGreenGrassDiscoveryTask( bool awsIotMqttMode,
     ( void ) pNetworkCredentialInfo;
 
     status = discoverGreengrassCore();
+
+    LogInfo( ( "starting sendMessageToGGC()" ) );
+    //ESP_LOGI(TAG, "starting sendMessageToGGC()");
+    sendMessageToGGC();
+   /* xTaskCreate( sendMessageToGGC,
+		        "sendMsg",
+		        democonfigDEMO_STACKSIZE,
+		        NULL,
+		        democonfigDEMO_PRIORITY,
+		        NULL );
+    */
 
     return status;
 }
